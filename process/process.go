@@ -1,6 +1,7 @@
 package process
 
 import (
+	"syscall"
 	"time"
 
 	"github.com/shirou/gopsutil/process"
@@ -86,4 +87,25 @@ func FlattenVisible(nodes []*Process) []*Process {
 	return result
 }
 
-//func //CascadingKill
+func CascadingGracefulKill(proc *Process) error {
+	for _, child := range proc.Children {
+		if err := CascadingGracefulKill(child); err != nil {
+			return err
+		}
+	}
+	if err := syscall.Kill(proc.PID, syscall.SIGTERM); err != nil {
+		return err
+	}
+	return nil
+}
+func CascadingForcefulKill(proc *Process) error {
+	for _, child := range proc.Children {
+		if err := CascadingForcefulKill(child); err != nil {
+			return err
+		}
+	}
+	if err := syscall.Kill(proc.PID, syscall.SIGKILL); err != nil {
+		return err
+	}
+	return nil
+}
