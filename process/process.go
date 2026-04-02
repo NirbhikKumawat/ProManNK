@@ -41,16 +41,32 @@ func BuildTree() ([]*Process, error) {
 		user, _ := proc.Username()
 		cpu, _ := proc.CPUPercent()
 		memory, _ := proc.MemoryPercent()
+		memInfo, _ := proc.MemoryInfo()
+		var vms, rss uint64
+		if memInfo != nil {
+			vms = memInfo.VMS / 1024 / 1024 // MB
+			rss = memInfo.RSS / 1024 / 1024 // MB
+		}
+		createTime, _ := proc.CreateTime()
+		state, _ := proc.Status()
+		var stateRune rune
+		if len(state) > 0 {
+			stateRune = rune(state[0])
+		}
 		node := &Process{
-			PID:      int(pid),
-			PPID:     int(ppid),
-			Command:  name,
-			Nice:     int(nice),
-			User:     user,
-			CPU:      float32(cpu),
-			Memory:   memory,
-			Children: []*Process{},
-			Expanded: false,
+			PID:       int(proc.Pid),
+			PPID:      int(ppid),
+			Command:   name,
+			User:      user,
+			Nice:      int(nice),
+			CPU:       float32(cpu),
+			Memory:    memory,
+			State:     stateRune, // R, S, D, Z, T
+			VirtualM:  vms,
+			ResidentM: rss,
+			Time:      time.Unix(createTime/1000, 0),
+			Children:  []*Process{},
+			Expanded:  false,
 		}
 		lookup[pid] = node
 		processes = append(processes, node)

@@ -22,6 +22,9 @@ var (
 
 	selectedText = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Background(lipgloss.Color("236"))
 
+	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212")).Underline(true)
+	labelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+
 	statusBarStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("230")).
 			Background(lipgloss.Color("62")).
@@ -35,16 +38,17 @@ var (
 )
 
 type Model struct {
-	Processes []*process.Process
-	Visible   []*process.Process
-	Expanded  map[int]bool
-	cursor    int
-	offset    int
-	width     int
-	height    int
-	err       error
-	status    string
-	display   string
+	Processes   []*process.Process
+	Visible     []*process.Process
+	Expanded    map[int]bool
+	cursor      int
+	offset      int
+	width       int
+	height      int
+	err         error
+	status      string
+	display     string
+	showDetails bool
 }
 type ErrorMsg error
 type ClearErrorMsg struct{}
@@ -133,6 +137,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor >= m.offset+usableHeight {
 				m.offset = m.cursor - usableHeight + 1
 			}
+		case "d":
+			m.showDetails = !m.showDetails
+
+		case "esc":
+			m.showDetails = false
 		case "E":
 			var expandAll func(nodes []*process.Process)
 			expandAll = func(nodes []*process.Process) {
@@ -320,6 +329,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 func (m *Model) View() string {
+	if m.showDetails {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderDetails())
+	}
 	if m.width == 0 {
 		return "Initializing..."
 	}
@@ -383,7 +395,7 @@ func (m *Model) View() string {
 		}
 	}
 	bar := statusBarStyle.Width(m.width).Render("Status: " + m.status)
-	helpMenu := subtleStyle.Render(" [↑/k/↓/j] Nav  [Enter] Tree  [E/C]Expand/Collapse all  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill  [q] Quit")
+	helpMenu := subtleStyle.Render(" [↑/k/↓/j] Nav  [Enter] Tree  [E/C]Expand/Collapse all  [d]Show/Hide details  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill  [q] Quit")
 	linesDrawn := end - m.offset
 	paddingLines := usableHeight - linesDrawn
 	if paddingLines > 0 {
@@ -391,4 +403,38 @@ func (m *Model) View() string {
 	}
 	b.WriteString("\n" + bar + "\n" + helpMenu)
 	return b.String()
+}
+func (m *Model) renderDetails() string {
+	selected := m.Visible[m.cursor]
+
+	detailBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("212")).
+		Padding(1, 2).
+		Width(60)
+
+	content := fmt.Sprintf(
+		"%s\n\n"+
+			"%s %d\n"+
+			"%s %d\n"+
+			"%s %c\n"+
+			"%s %d\n"+
+			"%s %s\n\n"+
+			"%s\n"+
+			"%s %d MB\n"+
+			"%s %d MB\n"+
+			"%s %s",
+		titleStyle.Render("PROCESS INSPECTOR"),
+		labelStyle.Render("PID:      "), selected.PID,
+		labelStyle.Render("Parent:   "), selected.PPID,
+		labelStyle.Render("State:    "), selected.State,
+		labelStyle.Render("Nice:     "), selected.Nice,
+		labelStyle.Render("User:     "), selected.User,
+		titleStyle.Render("MEMORY USAGE"),
+		labelStyle.Render("Virtual:  "), selected.VirtualM,
+		labelStyle.Render("Resident: "), selected.ResidentM,
+		labelStyle.Render("Started:  "), selected.Time.Format("15:04:05"),
+	)
+
+	return detailBox.Render(content)
 }

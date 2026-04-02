@@ -47,6 +47,7 @@ sudo ./promannk
 | `Enter`        | Toggle Tree          | Expands or collapses the selected process's children.                  |
 | `E`            | Expand All           | Expands all the process's children.                                    |
 | `C`            | Collapse All         | Collapses all the process's children.                                  |
+| `d`            | Show/Hide Details    | Shows/Hides additional process details.                                |
 | `i`            | Interrupt            | Sends SIGINT to the selected process.                                  |
 | `s`            | Stop                 | Sends SIGSTOP to the selected process.                                 |
 | `c`            | Continue             | Sends SIGCONT to the selected process.                                 |
