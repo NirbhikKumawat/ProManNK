@@ -133,6 +133,45 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor >= m.offset+usableHeight {
 				m.offset = m.cursor - usableHeight + 1
 			}
+		case "E":
+			var expandAll func(nodes []*process.Process)
+			expandAll = func(nodes []*process.Process) {
+				for _, node := range nodes {
+					if len(node.Children) > 0 {
+						m.Expanded[node.PID] = true
+						expandAll(node.Children)
+					}
+				}
+			}
+
+			expandAll(m.Processes)
+			m.UpdateTree()
+
+			if len(m.Visible) > 0 {
+				if m.cursor >= len(m.Visible) {
+					m.cursor = len(m.Visible) - 1
+				}
+				if m.offset > m.cursor {
+					m.offset = m.cursor
+				}
+			}
+			m.status = "Expanded all process branches."
+
+		case "C":
+			m.Expanded = make(map[int]bool)
+			m.UpdateTree()
+			if len(m.Visible) > 0 {
+				if m.cursor >= len(m.Visible) {
+					m.cursor = len(m.Visible) - 1
+				}
+				if m.offset > m.cursor {
+					m.offset = m.cursor
+				}
+			} else {
+				m.cursor = 0
+				m.offset = 0
+			}
+			m.status = "Collapsed all process branches."
 		case "i":
 			if len(m.Visible) > 0 {
 				selected := m.Visible[m.cursor]
@@ -344,7 +383,7 @@ func (m *Model) View() string {
 		}
 	}
 	bar := statusBarStyle.Width(m.width).Render("Status: " + m.status)
-	helpMenu := subtleStyle.Render(" [↑/k/↓/j] Nav  [Enter] Tree  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill  [q] Quit")
+	helpMenu := subtleStyle.Render(" [↑/k/↓/j] Nav  [Enter] Tree  [E/C]Expand/Collapse all  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill  [q] Quit")
 	linesDrawn := end - m.offset
 	paddingLines := usableHeight - linesDrawn
 	if paddingLines > 0 {
