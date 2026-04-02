@@ -133,6 +133,58 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor >= m.offset+usableHeight {
 				m.offset = m.cursor - usableHeight + 1
 			}
+		case "i":
+			if len(m.Visible) > 0 {
+				selected := m.Visible[m.cursor]
+				if selected.PID == 1 {
+					m.status = "Operation aborted: Refusing to interrupt init system."
+					return m, nil
+				}
+				err := syscall.Kill(selected.PID, syscall.SIGINT)
+				if err != nil {
+					if os.IsPermission(err) || err == syscall.EPERM {
+						m.status = fmt.Sprintf("Permission Denied: Cannot interrupt PID %d. Run with sudo.", selected.PID)
+					} else {
+						m.status = fmt.Sprintf("Failed to interrupt %d: %v", selected.PID, err)
+					}
+				} else {
+					m.status = fmt.Sprintf("Sent SIGINT (Interrupt) to PID %d", selected.PID)
+				}
+			}
+		case "s":
+			if len(m.Visible) > 0 {
+				selected := m.Visible[m.cursor]
+				if selected.PID == 1 {
+					m.status = "Operation aborted: Refusing to pause init system."
+					return m, nil
+				}
+				err := syscall.Kill(selected.PID, syscall.SIGSTOP)
+				if err != nil {
+					if os.IsPermission(err) || err == syscall.EPERM {
+						m.status = fmt.Sprintf("Permission Denied: Cannot pause PID %d. Run with sudo.", selected.PID)
+					} else {
+						m.status = fmt.Sprintf("Failed to pause %d: %v", selected.PID, err)
+					}
+				} else {
+					m.status = fmt.Sprintf("Sent SIGSTOP (Paused) to PID %d", selected.PID)
+				}
+			}
+
+		case "c":
+			if len(m.Visible) > 0 {
+				selected := m.Visible[m.cursor]
+				// We don't need to block resuming PID 1, but it shouldn't be paused anyway
+				err := syscall.Kill(selected.PID, syscall.SIGCONT)
+				if err != nil {
+					if os.IsPermission(err) || err == syscall.EPERM {
+						m.status = fmt.Sprintf("Permission Denied: Cannot resume PID %d. Run with sudo.", selected.PID)
+					} else {
+						m.status = fmt.Sprintf("Failed to resume %d: %v", selected.PID, err)
+					}
+				} else {
+					m.status = fmt.Sprintf("Sent SIGCONT (Resumed) to PID %d", selected.PID)
+				}
+			}
 		case "t":
 			if len(m.Visible) > 0 {
 				selected := m.Visible[m.cursor]
@@ -208,9 +260,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if len(m.Visible) > 0 {
 				selected := m.Visible[m.cursor]
-				if selected.PID == 1 {
-					m.status = "Operation aborted: Refusing to kill self or init system."
-				}
 				if len(selected.Children) > 0 {
 					m.Expanded[selected.PID] = !m.Expanded[selected.PID]
 					m.UpdateTree()
@@ -295,7 +344,7 @@ func (m *Model) View() string {
 		}
 	}
 	bar := statusBarStyle.Width(m.width).Render("Status: " + m.status)
-	helpMenu := subtleStyle.Render(" [↑/k/↓/j] Navigate  [Enter] Toggle Tree  [t] Term  [f] Kill  [T] Tree Term  [F] Tree Kill  [q] Quit")
+	helpMenu := subtleStyle.Render(" [↑/k/↓/j] Nav  [Enter] Tree  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill  [q] Quit")
 	linesDrawn := end - m.offset
 	paddingLines := usableHeight - linesDrawn
 	if paddingLines > 0 {

@@ -45,6 +45,9 @@ sudo ./promannk
 | `↑` / `k`      | Navigate Up          | 	Moves the cursor up the visible process list.                         |
 | `↓` / `j`      | Navigate Down        | 	Moves the cursor down the visible process list.                       |
 | `Enter`        | Toggle Tree          | Expands or collapses the selected process's children.                  |
+| `i`            | Interrupt            | Sends SIGINT to the selected process.                                  |
+| `s`            | Stop                 | Sends SIGSTOP to the selected process.                                 |
+| `c`            | Continue             | Sends SIGCONT to the selected process.                                 |
 | `t`            | Terminate (Graceful) | 	Sends SIGTERM to the selected process.                                |
 | `f`            | Force Kill           | 	Sends SIGKILL to the selected process.                                |
 | `T`            | Tree Terminate       | 	Recursively sends SIGTERM to the selected process and all children.   |
