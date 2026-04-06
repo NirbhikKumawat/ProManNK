@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -49,7 +50,12 @@ type Model struct {
 	status      string
 	display     string
 	showDetails bool
+
+	searchBar   textinput.Model
+	isSearching bool
+	filterQuery string
 }
+
 type ErrorMsg error
 type ClearErrorMsg struct{}
 type TickMsg struct{}
@@ -59,22 +65,49 @@ func NewModel() *Model {
 	if err != nil {
 		panic(err)
 	}
+
+	ti := textinput.New()
+	ti.Placeholder = "Press '/' to search by name or PID..."
+	ti.CharLimit = 50
+	ti.Width = 30
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
 	return &Model{
-		cursor:    0,
-		offset:    0,
-		Processes: processes,
-		Visible:   process.FlattenVisible(processes),
-		display:   "",
-		Expanded:  make(map[int]bool),
-		status:    "ProManNK just started",
-		err:       nil,
+		cursor:      0,
+		offset:      0,
+		Processes:   processes,
+		Visible:     process.FlattenVisible(processes),
+		display:     "",
+		Expanded:    make(map[int]bool),
+		status:      "ProManNK just started",
+		err:         nil,
+		searchBar:   ti,
+		isSearching: false,
 	}
 }
+
 func tickCmd() tea.Cmd {
 	return tea.Tick(time.Second*1, func(t time.Time) tea.Msg {
 		return TickMsg{}
 	})
 }
+
+func (m *Model) ApplyFilter() {
+	allVisible := process.FlattenVisible(m.Processes)
+	if m.filterQuery != "" {
+		var filtered []*process.Process
+		query := strings.ToLower(m.filterQuery)
+
+		for _, p := range allVisible {
+			if strings.Contains(strings.ToLower(p.Command), query) || fmt.Sprintf("%d", p.PID) == query {
+				filtered = append(filtered, p)
+			}
+		}
+		m.Visible = filtered
+	} else {
+		m.Visible = allVisible
+	}
+}
+
 func (m *Model) UpdateTree() {
 	processes, err := process.BuildTree()
 	if err != nil {
@@ -82,8 +115,9 @@ func (m *Model) UpdateTree() {
 	}
 	restoreExpansionState(processes, m.Expanded)
 	m.Processes = processes
-	m.Visible = process.FlattenVisible(processes)
+	m.ApplyFilter()
 }
+
 func restoreExpansionState(nodes []*process.Process, expandedMap map[int]bool) {
 	for _, node := range nodes {
 		node.Expanded = expandedMap[node.PID]
@@ -92,9 +126,11 @@ func restoreExpansionState(nodes []*process.Process, expandedMap map[int]bool) {
 		}
 	}
 }
+
 func (m *Model) Init() tea.Cmd {
 	return tickCmd()
 }
+
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -119,10 +155,40 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tickCmd()
 	case tea.KeyMsg:
-		usableHeight := m.height - 7
+		usableHeight := m.height - 10
+		if m.isSearching {
+			switch msg.String() {
+			case "esc":
+				m.isSearching = false
+				m.searchBar.Blur()
+				m.filterQuery = ""
+				m.cursor = 0
+				m.offset = 0
+				m.ApplyFilter()
+				return m, nil
+			case "enter":
+				m.isSearching = false
+				m.searchBar.Blur()
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.searchBar, cmd = m.searchBar.Update(msg)
+				m.filterQuery = m.searchBar.Value()
+				m.offset = 0
+				m.cursor = 0
+				m.ApplyFilter()
+				return m, cmd
+			}
+		}
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
+		case "/":
+			if !m.showDetails {
+				m.isSearching = true
+				m.searchBar.Focus()
+				m.status = "Typing search query... Press Enter to navigate results, Esc to cancel."
+			}
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
@@ -154,7 +220,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			expandAll(m.Processes)
-			m.UpdateTree()
+			restoreExpansionState(m.Processes, m.Expanded)
+			m.ApplyFilter()
 
 			if len(m.Visible) > 0 {
 				if m.cursor >= len(m.Visible) {
@@ -168,7 +235,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "C":
 			m.Expanded = make(map[int]bool)
-			m.UpdateTree()
+			restoreExpansionState(m.Processes, m.Expanded)
+			m.ApplyFilter()
 			if len(m.Visible) > 0 {
 				if m.cursor >= len(m.Visible) {
 					m.cursor = len(m.Visible) - 1
@@ -221,7 +289,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "c":
 			if len(m.Visible) > 0 {
 				selected := m.Visible[m.cursor]
-				// We don't need to block resuming PID 1, but it shouldn't be paused anyway
 				err := syscall.Kill(selected.PID, syscall.SIGCONT)
 				if err != nil {
 					if os.IsPermission(err) || err == syscall.EPERM {
@@ -310,7 +377,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				selected := m.Visible[m.cursor]
 				if len(selected.Children) > 0 {
 					m.Expanded[selected.PID] = !m.Expanded[selected.PID]
-					m.UpdateTree()
+					restoreExpansionState(m.Processes, m.Expanded)
+					m.ApplyFilter()
 					if len(m.Visible) > 0 {
 						if m.cursor >= len(m.Visible) {
 							m.cursor = len(m.Visible) - 1
@@ -328,6 +396,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
 func (m *Model) View() string {
 	if m.showDetails {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderDetails())
@@ -335,7 +404,7 @@ func (m *Model) View() string {
 	if m.width == 0 {
 		return "Initializing..."
 	}
-	usableHeight := m.height - 7
+	usableHeight := m.height - 10
 	if usableHeight < 1 {
 		usableHeight = 1
 	}
@@ -343,16 +412,30 @@ func (m *Model) View() string {
 	if end > len(m.Visible) {
 		end = len(m.Visible)
 	}
+
 	var b strings.Builder
 	title := " 🌲 ProManNK : Visual Process Orchestrator "
 	b.WriteString(headerStyle.Render(title) + "\n\n")
+
+	b.WriteString(" " + m.searchBar.View() + "\n\n")
+
 	colHeader := fmt.Sprintf("  %-8s %-35s %-12s %-8s %-8s", "PID", "COMMAND", "USER", "CPU%", "MEM%")
 	b.WriteString(subtleStyle.Render(colHeader) + "\n")
 	b.WriteString(subtleStyle.Render(strings.Repeat("─", 78)) + "\n")
+
 	if len(m.Visible) == 0 {
 		b.WriteString("  No running processes\n")
+		linesDrawn := 1
+		paddingLines := usableHeight - linesDrawn
+		if paddingLines > 0 {
+			b.WriteString(strings.Repeat("\n", paddingLines))
+		}
+		bar := statusBarStyle.Width(m.width).Render("Status: " + m.status)
+		helpMenu := subtleStyle.Render(" [↑/k/↓/j] Nav  [Enter] Tree  [E/C]Expand/Collapse all  [d]Show/Hide details  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill  [q] Quit")
+		b.WriteString("\n" + bar + "\n" + helpMenu)
 		return b.String()
 	}
+
 	for i := m.offset; i < end; i++ {
 		proc := m.Visible[i]
 		indent := strings.Repeat("  ", proc.Depth)
@@ -394,6 +477,7 @@ func (m *Model) View() string {
 			b.WriteString(row + "\n")
 		}
 	}
+
 	bar := statusBarStyle.Width(m.width).Render("Status: " + m.status)
 	helpMenu := subtleStyle.Render(" [↑/k/↓/j] Nav  [Enter] Tree  [E/C]Expand/Collapse all  [d]Show/Hide details  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill  [q] Quit")
 	linesDrawn := end - m.offset
@@ -404,6 +488,7 @@ func (m *Model) View() string {
 	b.WriteString("\n" + bar + "\n" + helpMenu)
 	return b.String()
 }
+
 func (m *Model) renderDetails() string {
 	selected := m.Visible[m.cursor]
 
