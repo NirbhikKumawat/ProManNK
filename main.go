@@ -1,10 +1,10 @@
 package main
 
 import (
-	"ProManNK/internal/ui"
 	"log"
 	"os"
 
+	"github.com/NirbhikKumawat/ProManNK/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

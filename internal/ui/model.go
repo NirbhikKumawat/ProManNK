@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"ProManNK/process"
 	"fmt"
 	"os"
 	"sort"
@@ -9,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/NirbhikKumawat/ProManNK/process"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

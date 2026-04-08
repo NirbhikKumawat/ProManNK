@@ -1,4 +1,4 @@
-module ProManNK
+module github.com/NirbhikKumawat/ProManNK
 
 go 1.25
 
