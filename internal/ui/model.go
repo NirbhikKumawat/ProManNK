@@ -4,6 +4,7 @@ import (
 	"ProManNK/process"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -13,29 +14,29 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+type SortMethod string
+
+const (
+	SortPID     SortMethod = "PID"
+	SortCommand SortMethod = "COMMAND"
+	SortUser    SortMethod = "USER"
+	SortCPU     SortMethod = "CPU"
+	SortMem     SortMethod = "MEM"
+)
+
+var sortMethods = []SortMethod{SortPID, SortCommand, SortUser, SortCPU, SortMem}
+
 var (
-	subtleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-
-	pidStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
-	cmdStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	userStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
-	statStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("43"))
-
-	selectedText = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Background(lipgloss.Color("236"))
-
-	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212")).Underline(true)
-	labelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-
-	statusBarStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("230")).
-			Background(lipgloss.Color("62")).
-			Padding(0, 1)
-
-	headerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("229")).
-			Background(lipgloss.Color("57")).
-			Padding(0, 1).
-			Bold(true)
+	subtleStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	pidStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
+	cmdStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	userStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	statStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("43"))
+	selectedText   = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Background(lipgloss.Color("236"))
+	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212")).Underline(true)
+	labelStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	statusBarStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("62")).Padding(0, 1)
+	headerStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("229")).Background(lipgloss.Color("57")).Padding(0, 1).Bold(true)
 )
 
 type Model struct {
@@ -50,15 +51,67 @@ type Model struct {
 	status      string
 	display     string
 	showDetails bool
-
 	searchBar   textinput.Model
 	isSearching bool
 	filterQuery string
+	sortMethod  SortMethod
+	sortAsc     bool
 }
 
 type ErrorMsg error
 type ClearErrorMsg struct{}
 type TickMsg struct{}
+
+func nextSortMethod(current SortMethod) SortMethod {
+	for i, m := range sortMethods {
+		if m == current {
+			return sortMethods[(i+1)%len(sortMethods)]
+		}
+	}
+	return SortPID
+}
+
+func prevSortMethod(current SortMethod) SortMethod {
+	for i, m := range sortMethods {
+		if m == current {
+			idx := i - 1
+			if idx < 0 {
+				idx = len(sortMethods) - 1
+			}
+			return sortMethods[idx]
+		}
+	}
+	return SortPID
+}
+
+func sortTree(nodes []*process.Process, method SortMethod, asc bool) {
+	sort.SliceStable(nodes, func(i, j int) bool {
+		var less bool
+		switch method {
+		case SortPID:
+			less = nodes[i].PID < nodes[j].PID
+		case SortCommand:
+			less = strings.ToLower(nodes[i].Command) < strings.ToLower(nodes[j].Command)
+		case SortUser:
+			less = strings.ToLower(nodes[i].User) < strings.ToLower(nodes[j].User)
+		case SortCPU:
+			less = nodes[i].CPU < nodes[j].CPU
+		case SortMem:
+			less = nodes[i].Memory < nodes[j].Memory
+		default:
+			less = nodes[i].PID < nodes[j].PID
+		}
+		if !asc {
+			return !less
+		}
+		return less
+	})
+	for _, n := range nodes {
+		if len(n.Children) > 0 {
+			sortTree(n.Children, method, asc)
+		}
+	}
+}
 
 func NewModel() *Model {
 	processes, err := process.BuildTree()
@@ -82,6 +135,8 @@ func NewModel() *Model {
 		err:         nil,
 		searchBar:   ti,
 		isSearching: false,
+		sortMethod:  SortPID,
+		sortAsc:     true,
 	}
 }
 
@@ -114,6 +169,7 @@ func (m *Model) UpdateTree() {
 		panic(err)
 	}
 	restoreExpansionState(processes, m.Expanded)
+	sortTree(processes, m.sortMethod, m.sortAsc)
 	m.Processes = processes
 	m.ApplyFilter()
 }
@@ -155,7 +211,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tickCmd()
 	case tea.KeyMsg:
-		usableHeight := m.height - 10
+		usableHeight := m.height - 9
 		if m.isSearching {
 			switch msg.String() {
 			case "esc":
@@ -183,6 +239,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
+		case ">", ".":
+			m.sortMethod = nextSortMethod(m.sortMethod)
+			m.UpdateTree()
+			m.status = fmt.Sprintf("Sorted by %s", m.sortMethod)
+		case "<", ",":
+			m.sortMethod = prevSortMethod(m.sortMethod)
+			m.UpdateTree()
+			m.status = fmt.Sprintf("Sorted by %s", m.sortMethod)
+		case "r", "R":
+			m.sortAsc = !m.sortAsc
+			m.UpdateTree()
+			m.status = fmt.Sprintf("Sorted by %s", m.sortMethod)
 		case "/":
 			if !m.showDetails {
 				m.isSearching = true
@@ -205,7 +273,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "d":
 			m.showDetails = !m.showDetails
-
 		case "esc":
 			m.showDetails = false
 		case "E":
@@ -218,11 +285,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
-
 			expandAll(m.Processes)
 			restoreExpansionState(m.Processes, m.Expanded)
 			m.ApplyFilter()
-
 			if len(m.Visible) > 0 {
 				if m.cursor >= len(m.Visible) {
 					m.cursor = len(m.Visible) - 1
@@ -232,7 +297,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.status = "Expanded all process branches."
-
 		case "C":
 			m.Expanded = make(map[int]bool)
 			restoreExpansionState(m.Processes, m.Expanded)
@@ -285,7 +349,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = fmt.Sprintf("Sent SIGSTOP (Paused) to PID %d", selected.PID)
 				}
 			}
-
 		case "c":
 			if len(m.Visible) > 0 {
 				selected := m.Visible[m.cursor]
@@ -404,7 +467,7 @@ func (m *Model) View() string {
 	if m.width == 0 {
 		return "Initializing..."
 	}
-	usableHeight := m.height - 10
+	usableHeight := m.height - 9
 	if usableHeight < 1 {
 		usableHeight = 1
 	}
@@ -417,11 +480,39 @@ func (m *Model) View() string {
 	title := " 🌲 ProManNK : Visual Process Orchestrator "
 	b.WriteString(headerStyle.Render(title) + "\n\n")
 
-	b.WriteString(" " + m.searchBar.View() + "\n\n")
+	if m.isSearching || m.filterQuery != "" {
+		b.WriteString(" " + m.searchBar.View() + "\n\n")
+	} else {
+		b.WriteString("\n\n")
+	}
 
-	colHeader := fmt.Sprintf("  %-8s %-35s %-12s %-8s %-8s", "PID", "COMMAND", "USER", "CPU%", "MEM%")
+	pidCol := "PID"
+	cmdCol := "COMMAND"
+	userCol := "USER"
+	cpuCol := "CPU%"
+	memCol := "MEM%"
+
+	arr := "^"
+	if !m.sortAsc {
+		arr = "v"
+	}
+
+	switch m.sortMethod {
+	case SortPID:
+		pidCol += arr
+	case SortCommand:
+		cmdCol += arr
+	case SortUser:
+		userCol += arr
+	case SortCPU:
+		cpuCol += arr
+	case SortMem:
+		memCol += arr
+	}
+
+	colHeader := fmt.Sprintf("  %-10s %-40s %-15s %-8s %-10s %-8s %-10s %-10s %-12s %-12s %-12s", pidCol, cmdCol, userCol, "STATE", "PPID", "NICE", cpuCol, memCol, "RSS(MB)", "VMS(MB)", "SHR(MB)")
 	b.WriteString(subtleStyle.Render(colHeader) + "\n")
-	b.WriteString(subtleStyle.Render(strings.Repeat("─", 78)) + "\n")
+	b.WriteString(subtleStyle.Render(strings.Repeat("─", 160)) + "\n")
 
 	if len(m.Visible) == 0 {
 		b.WriteString("  No running processes\n")
@@ -431,7 +522,7 @@ func (m *Model) View() string {
 			b.WriteString(strings.Repeat("\n", paddingLines))
 		}
 		bar := statusBarStyle.Width(m.width).Render("Status: " + m.status)
-		helpMenu := subtleStyle.Render(" [↑/k/↓/j] Nav  [Enter] Tree  [E/C]Expand/Collapse all  [d]Show/Hide details  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill  [q] Quit")
+		helpMenu := subtleStyle.Render(" [↑/k/↓/j] Nav  [</>] Sort  [r] Rev Sort  [Ent] Open/Close Tree  [/] Search  [E/C] Exp/Col  [d] Details  [q] Quit  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill")
 		b.WriteString("\n" + bar + "\n" + helpMenu)
 		return b.String()
 	}
@@ -449,37 +540,49 @@ func (m *Model) View() string {
 		}
 		treePrefix := fmt.Sprintf("%s%s", indent, folderIcon)
 		fullCmd := treePrefix + proc.Command
-		if len(fullCmd) > 35 {
-			fullCmd = fullCmd[:32] + "..."
+		if len(fullCmd) > 40 {
+			fullCmd = fullCmd[:37] + "..."
 		}
 		userName := proc.User
-		if len(userName) > 12 {
-			userName = userName[:11] + "+"
+		if len(userName) > 15 {
+			userName = userName[:14] + "+"
 		}
 		if m.cursor == i {
-			plainRow := fmt.Sprintf("▶ %-8d %-35s %-12s %-8.1f %-8.1f",
+			plainRow := fmt.Sprintf("▶ %-10d %-40s %-15s %-8c %-10d %-8d %-10.3f %-10.3f %-12d %-12d %-12d",
 				proc.PID,
 				fullCmd,
 				userName,
+				proc.State,
+				proc.PPID,
+				proc.Nice,
 				proc.CPU,
-				proc.Memory)
+				proc.Memory,
+				proc.ResidentM,
+				proc.VirtualM,
+				proc.SharedM)
 
 			row := selectedText.Width(m.width).Render(plainRow)
 			b.WriteString(row + "\n")
 		} else {
-			pidStr := pidStyle.Render(fmt.Sprintf("%-8d", proc.PID))
-			cmdStr := cmdStyle.Render(fmt.Sprintf("%-35s", fullCmd))
-			userStr := userStyle.Render(fmt.Sprintf("%-12s", userName))
-			cpuStr := statStyle.Render(fmt.Sprintf("%-8.1f", proc.CPU))
-			memStr := statStyle.Render(fmt.Sprintf("%-8.1f", proc.Memory))
+			pidStr := pidStyle.Render(fmt.Sprintf("%-10d", proc.PID))
+			cmdStr := cmdStyle.Render(fmt.Sprintf("%-40s", fullCmd))
+			userStr := userStyle.Render(fmt.Sprintf("%-15s", userName))
+			stateStr := userStyle.Render(fmt.Sprintf("%-8c", proc.State))
+			ppidStr := pidStyle.Render(fmt.Sprintf("%-10d", proc.PPID))
+			niceStr := statStyle.Render(fmt.Sprintf("%-8d", proc.Nice))
+			cpuStr := statStyle.Render(fmt.Sprintf("%-10.3f", proc.CPU))
+			memStr := statStyle.Render(fmt.Sprintf("%-10.3f", proc.Memory))
+			rssStr := statStyle.Render(fmt.Sprintf("%-12d", proc.ResidentM))
+			vmsStr := statStyle.Render(fmt.Sprintf("%-12d", proc.VirtualM))
+			shrStr := statStyle.Render(fmt.Sprintf("%-12d", proc.SharedM))
 
-			row := fmt.Sprintf("  %s %s %s %s %s", pidStr, cmdStr, userStr, cpuStr, memStr)
+			row := fmt.Sprintf("  %s %s %s %s %s %s %s %s %s %s %s", pidStr, cmdStr, userStr, stateStr, ppidStr, niceStr, cpuStr, memStr, rssStr, vmsStr, shrStr)
 			b.WriteString(row + "\n")
 		}
 	}
 
 	bar := statusBarStyle.Width(m.width).Render("Status: " + m.status)
-	helpMenu := subtleStyle.Render(" [↑/k/↓/j] Nav  [Enter] Tree  [E/C]Expand/Collapse all  [d]Show/Hide details  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill  [q] Quit")
+	helpMenu := subtleStyle.Render(" [↑/k/↓/j] Nav  [</>] Sort  [r] Rev Sort  [Ent] Open/Close Tree  [/] Search  [E/C] Exp/Col  [d] Details  [q] Quit  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill")
 	linesDrawn := end - m.offset
 	paddingLines := usableHeight - linesDrawn
 	if paddingLines > 0 {
@@ -508,6 +611,7 @@ func (m *Model) renderDetails() string {
 			"%s\n"+
 			"%s %d MB\n"+
 			"%s %d MB\n"+
+			"%s %d MB\n"+
 			"%s %s",
 		titleStyle.Render("PROCESS INSPECTOR"),
 		labelStyle.Render("PID:      "), selected.PID,
@@ -518,6 +622,7 @@ func (m *Model) renderDetails() string {
 		titleStyle.Render("MEMORY USAGE"),
 		labelStyle.Render("Virtual:  "), selected.VirtualM,
 		labelStyle.Render("Resident: "), selected.ResidentM,
+		labelStyle.Render("Shared:   "), selected.SharedM,
 		labelStyle.Render("Started:  "), selected.Time.Format("15:04:05"),
 	)
 
