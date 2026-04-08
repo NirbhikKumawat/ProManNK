@@ -1,66 +1,89 @@
-# ProManNK: Visual Process Orchestrator
+# 🌲 ProManNK: Visual Process Orchestrator
 
-## Overview
-ProManNK is a low-level, terminal-based Process Orchestrator written in Go. Unlike standard flat-list utilities such as `top` or `ps`, ProManNK visualizes the operating system's workload as a hierarchical process tree. It allows users to interactively navigate parent-child process relationships, monitor real-time resource consumption, and execute system-level signals (such as graceful terminations and cascading forceful kills) directly from the terminal interface.
+[![Go Version](https://img.shields.io/badge/Go-1.20+-00ADD8?logo=go)](https://go.dev/)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey)]()
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)]()
 
-This project was developed to practically demonstrate core Operating System concepts, including process control blocks, system calls, process state management, and concurrent metric polling.
+> A low-level, high-performance Terminal User Interface (TUI) for visualizing and managing operating system workloads as hierarchical process trees.
 
-## Core OS Concepts Demonstrated
-* **Process Hierarchies:** Maps the `PID` to `PPID` relationships, visually demonstrating the `fork()` and `exec()` execution flow of the Linux kernel.
-* **System Calls & Inter-Process Communication (IPC):** Utilizes the native OS `syscall` interface to dispatch POSIX signals (`SIGTERM`, `SIGKILL`) to specific processes.
-* **Process State & Resource Management:** Reads and formats live data from the `/proc` filesystem (via `gopsutil`), exposing scheduling priorities (nice values), CPU utilization, and memory allocation.
-* **Concurrency:** Employs Go's native goroutines for non-blocking, asynchronous background polling of system metrics without interrupting the main UI rendering thread.
+![ProManNk](images/img0.png)
+![ProManNK](images/img.png)
 
-## Features
-* **Interactive Tree Visualization:** Expand and collapse process branches to trace execution lineage from `systemd` (PID 1) downwards.
-* **Granular Process Control:** Send individual signals to specific processes to request graceful shutdown or force immediate termination.
-* **Cascading Operations:** Recursively traverse the process tree to safely terminate a parent process and all of its subsequent child processes in a single operation.
-* **Real-Time Telemetry:** View live CPU% and Memory% utilization alongside process ownership and execution commands.
+## 📖 Overview
+Unlike standard flat-list utilities such as `top` or `ps`, ProManNK maps out the exact parent-child execution lineage of your system. It allows users to interactively navigate process relationships, monitor real-time resource consumption, and execute granular, system-level POSIX signals directly from the terminal.
 
-## Installation and Execution
+Built in Go, it leverages concurrent background polling for zero-lag UI rendering and provides deep insights into the OS process lifecycle.
+
+## ✨ Features
+* **Interactive Tree Visualization:** Seamlessly expand and collapse process branches to trace execution from `systemd` (PID 1) downwards.
+* **Cascading Operations:** Recursively traverse the process tree to safely terminate or forcefully kill a parent and all of its subsequent children in a single keystroke.
+* **Live Fuzzy Search:** Press `/` to instantly filter the active process tree by exact PID or command name.
+* **Dynamic Sorting:** Cycle through sort methods (PID, Command, User, CPU%, Mem%) in ascending or descending order while preserving tree structures.
+* **Detailed Inspector:** Toggle a dedicated detail panel to view deep metrics on any selected process.
+
+## 🚀 Installation & Execution
 
 ### Prerequisites
 * Go 1.20 or higher
-* A Linux-based operating system (or macOS)
+* A Linux-based OS (or macOS)
 
-### Build Instructions
-To compile the application into a standalone binary:
+### Installation
+You can install ProManNK directly from this repository using `go install`. This will compile the binary and place it in your Go bin directory.
+
 ```bash
-go build -o promannk main.go
+go install https://github.com/NirbhikKumawat/ProManNK@latest
 ```
+Ensure that your `$GOPATH/bin` (usually `~/go/bin`) is added to your system's `$PATH`.
 ### Execution
-To view processes, simply run the binary.
-Note: To execute system calls (like terminating system-level processes or processes owned by other users), the binary must be executed with elevated privileges.
 ```bash
-# Standard execution (Read-only for other users' processes)
-./promannk
+# Standard execution (Read-only for other users' system processes)
+ProManNK
 
-# Elevated execution (Required for full signal control)
-sudo ./promannk
+# Elevated execution (Required for full signal control over all processes)
+sudo ProManNK
 ```
-
 ## Keybindings
-| __Key__        | __Action__           | __Description__                                                        |
-|----------------|----------------------|------------------------------------------------------------------------|
-| `↑` / `k`      | Navigate Up          | 	Moves the cursor up the visible process list.                         |
-| `↓` / `j`      | Navigate Down        | 	Moves the cursor down the visible process list.                       |
-| `Enter`        | Toggle Tree          | Expands or collapses the selected process's children.                  |
-| `E`            | Expand All           | Expands all the process's children.                                    |
-| `C`            | Collapse All         | Collapses all the process's children.                                  |
-| `d`            | Show/Hide Details    | Shows/Hides additional process details.                                |
-| `i`            | Interrupt            | Sends SIGINT to the selected process.                                  |
-| `s`            | Stop                 | Sends SIGSTOP to the selected process.                                 |
-| `c`            | Continue             | Sends SIGCONT to the selected process.                                 |
-| `t`            | Terminate (Graceful) | 	Sends SIGTERM to the selected process.                                |
-| `f`            | Force Kill           | 	Sends SIGKILL to the selected process.                                |
-| `T`            | Tree Terminate       | 	Recursively sends SIGTERM to the selected process and all children.   |
-| `F`            | Tree Force Kill      | 	Recursively sends SIGKILL to the selected process and all children.   |
-| `q` / `Ctrl+C` | Quit                 | Safely exits the alternate terminal buffer and closes the application. |
+### Navigation and UI
+| Key            | 	Action         | 	Description                                       |
+|----------------|-----------------|----------------------------------------------------|
+| `↑` / `k`      | 	Navigate Up    | 	Moves the cursor up the process list.             |
+| `↓` / `j`      | 	Navigate Down  | 	Moves the cursor down the process list.           |
+| `/`            | 	Search         | 	Fuzzy search processes by PID or Command name.    |
+| `d`            | 	Toggle Details | 	Shows/Hides the detailed process inspector panel. |
+| `q` / `Ctrl+C` | 	Quit           | 	Safely exits the alternate terminal buffer.       |
 
-## Technical Stack
-- __Language__ : Go
-- __UI Framework__: `github.com/charmbracelet/bubbletea` (Elm-architecture TUI framework)
-- __Styling__: `github.com/charmbracelet/lipgloss`
-- __System Metrics__: `github.com/shirou/gopsutil`
+### Tree Management
+| Key     | 	Action         | 	Description                                           |
+|---------|-----------------|--------------------------------------------------------|
+| `Enter` | 	Toggle Tree    | 	Expands or collapses the selected process's children. |
+| `E`     | 	`Expand All`   | 	Recursively expands all branches in the tree.         |
+| `C`     | 	`Collapse All` | 	Collapses the entire tree back to the root nodes.     |
+
+### Process Control (Signals)
+| Key	 | Action	          | Description                                              |
+|------|------------------|----------------------------------------------------------|
+| `i`  | 	Interrupt	      | Sends SIGINT (Ctrl+C equivalent).                        |
+| `s`  | 	Pause (Stop)    | 	Sends SIGSTOP to freeze process execution.              |
+| `c`  | 	Resume (Cont)   | 	Sends SIGCONT to resume a frozen process.               |
+| `t`  | 	Terminate	      | Sends SIGTERM for a graceful shutdown.                   |
+| `f`  | 	Force Kill	     | Sends SIGKILL for immediate destruction.                 |
+| `T`  | 	Tree Terminate  | 	Recursively sends SIGTERM to the node and all children. |
+| `F`  | 	Tree Force Kill | 	Recursively sends SIGKILL to the node and all children. |
+
+### Sorting
+| Key       | 	Action       | 	Description                                            |
+|-----------|---------------|---------------------------------------------------------|
+| `>` / `.` | 	Next Sort    | 	Cycles forward through sort criteria (CPU, Mem, etc.). |
+| `<` / `,` | 	Prev Sort    | 	Cycles backward through sort criteria.                 |
+| `r` / `R` | 	Reverse Sort | 	Toggles between Ascending and Descending order.        |
+
+## 🛠️ Technical Stack
+- __Language__: Go
+
+- __UI Framework__: [Bubbletea](https://github.com/charmbracelet/bubbletea) 
+
+- __Styling__: [Lipgloss](https://github.com/charmbracelet/lipgloss)
+
+- __System Metrics__: [Gopsutil](https://github.com/shirou/gopsutil)
 ---
-Made by [Nirbhik Kumawat](https://github.com/NirbhikKumawat)
+Built by [NirbhikTheNice](https://github.com/NirbhikKumawat)
