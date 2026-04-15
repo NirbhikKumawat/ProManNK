@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/shirou/gopsutil/net"
 )
 
 type SortMethod string
@@ -41,24 +42,26 @@ var (
 )
 
 type Model struct {
-	Processes   []*process.Process
-	Visible     []*process.Process
-	Expanded    map[int]bool
-	cursor      int
-	offset      int
-	width       int
-	height      int
-	err         error
-	status      string
-	display     string
-	showDetails bool
-	showLogs    bool
-	currentLogs string
-	searchBar   textinput.Model
-	isSearching bool
-	filterQuery string
-	sortMethod  SortMethod
-	sortAsc     bool
+	Processes      []*process.Process
+	Visible        []*process.Process
+	Expanded       map[int]bool
+	cursor         int
+	offset         int
+	width          int
+	height         int
+	err            error
+	status         string
+	display        string
+	showDetails    bool
+	showLogs       bool
+	currentLogs    string
+	showNetwork    bool
+	currentNetwork string
+	searchBar      textinput.Model
+	isSearching    bool
+	filterQuery    string
+	sortMethod     SortMethod
+	sortAsc        bool
 }
 
 type ErrorMsg error
@@ -261,19 +264,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.searchBar.Focus()
 				m.status = "Typing search query... Press Enter to navigate results, Esc to cancel."
 			}
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
+		case "up":
+			if !m.showDetails && !m.showNetwork && !m.showLogs {
+				if m.cursor > 0 {
+					m.cursor--
+				}
+				if m.cursor < m.offset {
+					m.offset = m.cursor
+				}
 			}
-			if m.cursor < m.offset {
-				m.offset = m.cursor
-			}
-		case "down", "j":
-			if m.cursor < len(m.Visible)-1 {
-				m.cursor++
-			}
-			if m.cursor >= m.offset+usableHeight {
-				m.offset = m.cursor - usableHeight + 1
+		case "down":
+			if !m.showDetails && !m.showNetwork && !m.showLogs {
+				if m.cursor < len(m.Visible)-1 {
+					m.cursor++
+				}
+				if m.cursor >= m.offset+usableHeight {
+					m.offset = m.cursor - usableHeight + 1
+				}
 			}
 		case "d":
 			if !m.showLogs {
@@ -295,9 +302,56 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.showLogs = true
 				}
 			}
+		case "n":
+			if !m.showDetails && !m.showLogs {
+				if m.showNetwork {
+					m.showNetwork = false
+				} else if len(m.Visible) > 0 {
+					selected := m.Visible[m.cursor]
+
+					conns, err := net.ConnectionsPid("all", int32(selected.PID))
+					if err != nil || len(conns) == 0 {
+						m.currentNetwork = "No active network connections found.\n(Note: You must run with 'sudo' to view connections of system processes!)"
+					} else {
+						var b strings.Builder
+
+						header := fmt.Sprintf("%-6s %-25s %-25s %-12s", "PROTO", "LOCAL", "REMOTE", "STATUS")
+						b.WriteString(subtleStyle.Render(header) + "\n")
+						b.WriteString(subtleStyle.Render(strings.Repeat("─", 70)) + "\n")
+
+						for _, c := range conns {
+							proto := "TCP"
+							if c.Type == syscall.SOCK_DGRAM {
+								proto = "UDP"
+							}
+							local := fmt.Sprintf("%s:%d", c.Laddr.IP, c.Laddr.Port)
+							if len(local) > 23 {
+								local = local[:20] + "..."
+							}
+							remote := fmt.Sprintf("%s:%d", c.Raddr.IP, c.Raddr.Port)
+							if c.Raddr.IP == "" {
+								remote = "*:*"
+							}
+							if len(remote) > 23 {
+								remote = remote[:20] + "..."
+							}
+							status := c.Status
+							if status == "" && proto == "UDP" {
+								status = "UNCONN"
+							}
+							row := fmt.Sprintf("%-6s %-25s %-25s %-12s", proto, local, remote, status)
+							b.WriteString(row + "\n")
+						}
+						m.currentNetwork = b.String()
+					}
+					m.showNetwork = true
+
+				}
+			}
 		case "esc":
 			m.showDetails = false
 			m.showLogs = false
+			m.showNetwork = false
 		case "E":
 			var expandAll func(nodes []*process.Process)
 			expandAll = func(nodes []*process.Process) {
@@ -490,6 +544,9 @@ func (m *Model) View() string {
 	if m.showLogs {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderLogs())
 	}
+	if m.showNetwork {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderNetwork())
+	}
 	if m.width == 0 {
 		return "Initializing..."
 	}
@@ -548,7 +605,7 @@ func (m *Model) View() string {
 			b.WriteString(strings.Repeat("\n", paddingLines))
 		}
 		bar := statusBarStyle.Width(m.width).Render("Status: " + m.status)
-		helpMenu := subtleStyle.Render(" [↑/k/↓/j] Nav  [</>] Sort  [r] Rev Sort  [Ent] Open/Close Tree  [/] Search  [E/C] Exp/Col  [d] Details  [q] Quit  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill")
+		helpMenu := subtleStyle.Render(" [↑/↓] Nav  [</>] Sort  [r] Rev Sort  [Ent] Open/Close Tree  [/] Search  [E/C] Exp/Col  [d] Details  [l] Logs  [n] Netstat  [q] Quit  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill")
 		b.WriteString("\n" + bar + "\n" + helpMenu)
 		return b.String()
 	}
@@ -608,7 +665,7 @@ func (m *Model) View() string {
 	}
 
 	bar := statusBarStyle.Width(m.width).Render("Status: " + m.status)
-	helpMenu := subtleStyle.Render(" [↑/↓] Nav  [</>] Sort  [r] Rev Sort  [Ent] Open/Close Tree  [/] Search  [E/C] Exp/Col  [d] Details  [l] Logs  [q] Quit  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill")
+	helpMenu := subtleStyle.Render(" [↑/↓] Nav  [</>] Sort  [r] Rev Sort  [Ent] Open/Close Tree  [/] Search  [E/C] Exp/Col  [d] Details  [l] Logs  [n] Netstat  [q] Quit  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill")
 	linesDrawn := end - m.offset
 	paddingLines := usableHeight - linesDrawn
 	if paddingLines > 0 {
@@ -673,4 +730,26 @@ func (m *Model) renderLogs() string {
 	content := fmt.Sprintf("%s\n\n%s", titleStyle.Render(header), m.currentLogs)
 
 	return logBox.Render(content)
+}
+
+func (m *Model) renderNetwork() string {
+	selected := m.Visible[m.cursor]
+
+	boxWidth := m.width - 10
+	if boxWidth < 80 {
+		boxWidth = 80
+	}
+	if boxWidth > 120 {
+		boxWidth = 120
+	}
+
+	netBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("212")).
+		Padding(1, 2).
+		Width(boxWidth)
+	header := fmt.Sprintf("NETWORK CONNECTIONS (PID: %d)", selected.PID)
+	content := fmt.Sprintf("%s\n\n%s", titleStyle.Render(header), m.currentNetwork)
+
+	return netBox.Render(content)
 }

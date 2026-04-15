@@ -21,6 +21,7 @@ Built in Go, it leverages concurrent background polling for zero-lag UI renderin
 * **Dynamic Sorting:** Cycle through sort methods (PID, Command, User, CPU%, Mem%) in ascending or descending order while preserving tree structures.
 * **Detailed Inspector:** Toggle a dedicated detail panel to view deep metrics on any selected process.
 * **Logs Inspector:** Toggle a dedicated view for viewing the latest logs of the selected process.
+* **Network Info:** Toggle a dedicated view for fetching networking info about the process.
 
 ## 🚀 Installation & Execution
 
@@ -45,14 +46,15 @@ sudo ProManNK
 ```
 ## Keybindings
 ### Navigation and UI
-| Key            | 	Action                    | 	Description                                       |
-|----------------|----------------------------|----------------------------------------------------|
-| `↑`            | 	Navigate Up               | 	Moves the cursor up the process list.             |
-| `↓`            | 	Navigate Down             | 	Moves the cursor down the process list.           |
-| `/`            | 	Search                    | 	Fuzzy search processes by PID or Command name.    |
-| `d`            | 	Toggle Details            | 	Shows/Hides the detailed process inspector panel. |
-| `l`            | Toggle Logs                | Shows/Hides the logs                               |
-| `q` / `Ctrl+C` | 	Quit                      | 	Safely exits the alternate terminal buffer.       |
+| Key            | 	Action              | 	Description                                       |
+|----------------|----------------------|----------------------------------------------------|
+| `↑`            | 	Navigate Up         | 	Moves the cursor up the process list.             |
+| `↓`            | 	Navigate Down       | 	Moves the cursor down the process list.           |
+| `/`            | 	Search              | 	Fuzzy search processes by PID or Command name.    |
+| `d`            | 	Toggle Details      | 	Shows/Hides the detailed process inspector panel. |
+| `l`            | Toggle Logs          | Shows/Hides the logs                               |
+| `n`            | Toggle Network Info  | Shows/Hides Network Info                           |
+| `q` / `Ctrl+C` | 	Quit                | 	Safely exits the alternate terminal buffer.       |
 
 ### Tree Management
 | Key     | 	Action         | 	Description                                           |
