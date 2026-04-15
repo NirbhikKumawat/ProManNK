@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"syscall"
@@ -51,6 +52,8 @@ type Model struct {
 	status      string
 	display     string
 	showDetails bool
+	showLogs    bool
+	currentLogs string
 	searchBar   textinput.Model
 	isSearching bool
 	filterQuery string
@@ -137,6 +140,7 @@ func NewModel() *Model {
 		isSearching: false,
 		sortMethod:  SortPID,
 		sortAsc:     true,
+		currentLogs: "",
 	}
 }
 
@@ -272,9 +276,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.offset = m.cursor - usableHeight + 1
 			}
 		case "d":
-			m.showDetails = !m.showDetails
+			if !m.showLogs {
+				m.showDetails = !m.showDetails
+			}
+		case "l":
+			if !m.showDetails {
+				if m.showLogs {
+					m.showLogs = false
+				} else if len(m.Visible) > 0 {
+					selected := m.Visible[m.cursor]
+					cmd := exec.Command("journalctl", fmt.Sprintf("_PID=%d", selected.PID), "-n", "15", "-q")
+					out, _ := cmd.CombinedOutput()
+					if len(out) == 0 {
+						m.currentLogs = "No recent logs found for this process in journalctl.\nNote: You may need 'sudo' to view system logs."
+					} else {
+						m.currentLogs = strings.TrimSpace(string(out))
+					}
+					m.showLogs = true
+				}
+			}
 		case "esc":
 			m.showDetails = false
+			m.showLogs = false
 		case "E":
 			var expandAll func(nodes []*process.Process)
 			expandAll = func(nodes []*process.Process) {
@@ -464,6 +487,9 @@ func (m *Model) View() string {
 	if m.showDetails {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderDetails())
 	}
+	if m.showLogs {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.renderLogs())
+	}
 	if m.width == 0 {
 		return "Initializing..."
 	}
@@ -582,7 +608,7 @@ func (m *Model) View() string {
 	}
 
 	bar := statusBarStyle.Width(m.width).Render("Status: " + m.status)
-	helpMenu := subtleStyle.Render(" [↑/k/↓/j] Nav  [</>] Sort  [r] Rev Sort  [Ent] Open/Close Tree  [/] Search  [E/C] Exp/Col  [d] Details  [q] Quit  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill")
+	helpMenu := subtleStyle.Render(" [↑/↓] Nav  [</>] Sort  [r] Rev Sort  [Ent] Open/Close Tree  [/] Search  [E/C] Exp/Col  [d] Details  [l] Logs  [q] Quit  [s] Pause  [c] Resume  [i] Int  [t] Term  [f] Kill")
 	linesDrawn := end - m.offset
 	paddingLines := usableHeight - linesDrawn
 	if paddingLines > 0 {
@@ -627,4 +653,24 @@ func (m *Model) renderDetails() string {
 	)
 
 	return detailBox.Render(content)
+}
+
+func (m *Model) renderLogs() string {
+	selected := m.Visible[m.cursor]
+
+	boxWidth := m.width - 10
+	if boxWidth < 60 {
+		boxWidth = 60
+	}
+
+	logBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("212")).
+		Padding(1, 2).
+		Width(boxWidth)
+
+	header := fmt.Sprintf("JOURNALCTL LOGS (PID: %d)", selected.PID)
+	content := fmt.Sprintf("%s\n\n%s", titleStyle.Render(header), m.currentLogs)
+
+	return logBox.Render(content)
 }
